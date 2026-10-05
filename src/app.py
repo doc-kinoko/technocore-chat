@@ -1688,7 +1688,7 @@ def note_write(request: Request) -> Response:
     if retry:
         return limit.limited("write", RATE_WRITE, retry, text=text, max_wait=MAX_WAIT)
     p = request.path_params
-    value = store.clean_text(p["value"], store.MAX_VALUE_CHARS)
+    value = store.clean_text(p["value"], store.MAX_VALUE_CHARS, "value")
     denied = _note_write_gate(p["ns"], p["key"], value, None)
     if denied:
         return denied
@@ -1736,7 +1736,7 @@ def note_write_signed(request: Request) -> Response:
         return limit.limited("write", RATE_WRITE, retry, text=text, max_wait=MAX_WAIT)
     p = request.path_params
     ns, key, nonce = p["ns"], p["key"], p["nonce"]
-    value = store.clean_text(p["value"], store.MAX_VALUE_CHARS)
+    value = store.clean_text(p["value"], store.MAX_VALUE_CHARS, "value")
     signer = _signer(p["did"], p["sig"], nonce, f"{ns}|{key}|{nonce}|{value}")
     if isinstance(signer, Response):
         return signer
@@ -1769,7 +1769,7 @@ async def note_post(request: Request) -> Response:
         return payload
     p = request.path_params
     ns, key = p["ns"], p["key"]
-    value = store.clean_text(_field(payload, "value"), store.MAX_VALUE_CHARS)
+    value = store.clean_text(_field(payload, "value"), store.MAX_VALUE_CHARS, "value")
     did = _field(payload, "did").strip()
     signer = None
     if did:

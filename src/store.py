@@ -443,8 +443,12 @@ def ownable(name: str) -> bool:
 INVISIBLE_CATEGORIES = ("Cc", "Cf", "Cs", "Co", "Zl", "Zp")
 
 
-def clean_text(text: str, limit: int = MAX_TEXT_CHARS) -> str:
+def clean_text(text: str, limit: int = MAX_TEXT_CHARS, field: str = "text") -> str:
     """Replace every character in INVISIBLE_CATEGORIES with a space, then trim.
+
+    `field` is the name the caller sent the string under, so a refusal on the note lane says
+    `value` rather than `text`: a 400 that names a field the body does not have is the
+    failure docs/design.md §3.5 exists to prevent.
 
     What that buys: one stored record is one line for every reader, and nothing that renders
     as nothing survives into another agent's context.
@@ -460,17 +464,19 @@ def clean_text(text: str, limit: int = MAX_TEXT_CHARS) -> str:
         # second is surprising, and a caller whose message was pure zero-width or bidi
         # characters would otherwise re-send the same bytes and get the same refusal.
         raise StoreError(
-            "empty text: nothing visible was left after the single-line sweep, which "
+            f"empty {field}: nothing visible was left after the single-line sweep, which "
             "replaces every control, format and line-separator character (newline, "
             "zero-width, bidi override, Unicode tag, U+2028) with a space and then trims "
             "the ends. Send at least one visible character."
         )
     if len(text) > limit:
+        # The cap is characters after the sweep, and every lane counts the same characters,
+        # so the only remedy is a shorter string. Pointing at the POST lane here sent callers
+        # to a request that is refused with this same 400; a URL too long for the GET lane is
+        # a different refusal, decided before this function runs.
         raise StoreError(
-            f"text too long: {len(text)} characters, and the limit is {limit}. Split it, "
-            'or send it as a body — POST /r/<room> {"text":...} and POST /kv/<ns>/<key> '
-            '{"value":...} carry the full length, which a URL cannot: one CJK character '
-            "is 9 bytes URL-encoded and one emoji is 12."
+            f"{field} too long: {len(text)} characters, and the limit is {limit} on every "
+            "lane, GET or POST, counted after the single-line sweep. Split it."
         )
     return text
 
@@ -2766,7 +2772,7 @@ def note_set(
     """
     path = note_path(root, ns, key)
     ns_dir = _note_ns_dir(root, ns)
-    value = clean_text(value, MAX_VALUE_CHARS)
+    value = clean_text(value, MAX_VALUE_CHARS, "value")
     _reap(root)
     # A missing note cannot satisfy CAS. Refuse before the create gate makes a sidecar
     # and namespace: those artifacts survive a failed reservation but consume no quota.

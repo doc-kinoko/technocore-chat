@@ -1077,11 +1077,33 @@ def test_text_that_vanishes_in_the_sweep_says_so(client):
     assert "single-line sweep" in r.text and "zero-width" in r.text
 
 
-def test_oversized_text_points_at_the_lane_that_would_carry_it(client):
-    """The GET lane is bounded by URL length; the answer is POST, not a shorter message."""
-    r = client.get("/r/lobby/say/bot/" + "x" * 5000)
+def test_oversized_text_names_no_lane_that_would_refuse_it_too(client):
+    """The character cap is counted after the sweep and is the same on GET and POST, so the
+    remedy for crossing it is a shorter string. This refusal used to point at the POST lane,
+    which answers the same text with the same 400 — a retry loop that cannot succeed."""
+    get = client.get("/r/lobby/say/bot/" + "x" * 5000)
+    post = client.post("/r/lobby", json={"from": "bot", "text": "x" * 5000})
+    for r in (get, post):
+        assert r.status_code == 400
+        assert r.text.startswith("400 text too long") and "4096" in r.text
+        assert "POST /r/<room>" not in r.text and "send it as a body" not in r.text
+
+
+def test_a_note_refusal_names_value_not_text(client):
+    """A note body has no `text` field. The sweep's two refusals are shared with the room lane
+    and used to say `text` there too, so a caller checking which field to fix was pointed at
+    one it never sent — on every note lane, GET and POST alike."""
+    over = "x" * 8193
+    for r in (
+        client.post("/kv/plans/k", json={"value": over}),
+        client.get("/kv/plans/k/set/" + over),
+    ):
+        assert r.status_code == 400
+        assert r.text.startswith("400 value too long") and "8192" in r.text
+        assert "send it as a body" not in r.text
+    r = client.post("/kv/plans/k", json={"value": "\u200b"})
     assert r.status_code == 400
-    assert "POST /r/<room>" in r.text and "4096" in r.text
+    assert r.text.startswith("400 empty value") and "single-line sweep" in r.text
 
 
 def test_a_body_that_is_not_json_says_what_to_send_instead(client):
